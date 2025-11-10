@@ -7,65 +7,80 @@ import feedparser
 # -------------------------------
 # 기본 설정
 # -------------------------------
-st.set_page_config(page_title="울버햄튼 원더러스 대시보드", page_icon="🐺", layout="wide")
-st.title("🐺 울버햄튼 원더러스 데이터 대시보드")
-st.markdown("### Premier League 2024/25 시즌 통계 (비공식 예시 데이터)")
+st.set_page_config(page_title="울버햄튼 데이터 대시보드", page_icon="🐺", layout="wide")
+st.title("🐺 울버햄튼 원더러스 실시간 대시보드")
 
 # -------------------------------
-# 1️⃣ 시즌 개요
+# Football-Data.org API 설정
 # -------------------------------
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("리그 순위", "11위")
-col2.metric("승", "5")
-col3.metric("무", "4")
-col4.metric("패", "6")
+API_KEY = st.secrets.get("FOOTBALL_DATA_API_KEY", None)
+TEAM_ID = 76  # Wolverhampton Wanderers (football-data.org 기준)
+COMP_ID = 2021  # Premier League
+
+if not API_KEY:
+    st.error("⚠️ Streamlit Secrets에 FOOTBALL_DATA_API_KEY를 등록해주세요.")
+    st.stop()
+
+headers = {"X-Auth-Token": API_KEY}
 
 # -------------------------------
-# 2️⃣ 최근 경기 데이터 (예시)
+# 1️⃣ 팀 정보
 # -------------------------------
-matches = pd.DataFrame({
-    "날짜": ["2025-10-25", "2025-11-02", "2025-11-09"],
-    "상대팀": ["Man United", "Everton", "Newcastle"],
-    "결과": ["2-1 승", "1-1 무", "0-2 패"],
-    "득점": [2, 1, 0],
-    "실점": [1, 1, 2],
-})
+team_url = f"https://api.football-data.org/v4/teams/{TEAM_ID}"
+team = requests.get(team_url, headers=headers).json()
+
+st.sidebar.image(team["crest"], width=100)
+st.sidebar.header(team["name"])
+st.sidebar.write(f"경기장: {team['venue']}")
+st.sidebar.write(f"창단: {team['founded']}")
+st.sidebar.write(f"국가: {team['area']['name']}")
+
+# -------------------------------
+# 2️⃣ 최근 경기
+# -------------------------------
+matches_url = f"https://api.football-data.org/v4/teams/{TEAM_ID}/matches?competitions={COMP_ID}&status=FINISHED"
+matches = requests.get(matches_url, headers=headers).json()["matches"]
+
+data = []
+for m in matches[-10:]:  # 최근 10경기
+    home = m["homeTeam"]["shortName"]
+    away = m["awayTeam"]["shortName"]
+    home_score = m["score"]["fullTime"]["home"]
+    away_score = m["score"]["fullTime"]["away"]
+    is_home = (home == "Wolves")
+    result = (
+        "승" if (home_score > away_score and is_home)
+        or (away_score > home_score and not is_home)
+        else "무" if home_score == away_score else "패"
+    )
+    data.append({
+        "날짜": m["utcDate"][:10],
+        "상대팀": away if is_home else home,
+        "득점": home_score if is_home else away_score,
+        "실점": away_score if is_home else home_score,
+        "결과": result
+    })
+
+df_matches = pd.DataFrame(data).sort_values("날짜", ascending=False)
 st.subheader("📅 최근 경기 결과")
-st.dataframe(matches, use_container_width=True)
+st.dataframe(df_matches, use_container_width=True)
 
 # -------------------------------
-# 3️⃣ 득점 추이 그래프
+# 3️⃣ 득점 추이 시각화
 # -------------------------------
-st.subheader("📈 경기별 득점 추이")
-fig = px.line(matches, x="날짜", y="득점", markers=True, title="득점 변화")
+st.subheader("📈 득점 추이")
+fig = px.line(df_matches.sort_values("날짜"), x="날짜", y="득점",
+              markers=True, title="경기별 득점 추이", color_discrete_sequence=["#FDB913"])
 st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------------
-# 4️⃣ 주요 선수 통계 (예시)
+# 4️⃣ 뉴스 섹션 (BBC RSS)
 # -------------------------------
-players = pd.DataFrame({
-    "선수": ["Pedro Neto", "Matheus Cunha", "Hwang Hee-chan", "João Gomes"],
-    "득점": [3, 4, 6, 1],
-    "어시스트": [2, 3, 1, 1],
-})
-st.subheader("👕 주요 선수 스탯")
-st.dataframe(players, use_container_width=True)
-
-fig2 = px.bar(players, x="선수", y="득점", color="선수", title="선수별 득점 현황")
-st.plotly_chart(fig2, use_container_width=True)
-
-# -------------------------------
-# 5️⃣ 최신 뉴스 (BBC RSS)
-# -------------------------------
-st.subheader("📰 최신 팀 뉴스")
+st.subheader("📰 최신 뉴스")
 rss_url = "https://feeds.bbci.co.uk/sport/football/teams/wolves/rss.xml"
 feed = feedparser.parse(rss_url)
 for entry in feed.entries[:5]:
     st.markdown(f"- [{entry.title}]({entry.link})")
 
-# -------------------------------
-# 푸터
-# -------------------------------
 st.write("---")
-st.caption("© 2025 Wolverhampton Wanderers Data Dashboard | Made with Streamlit 🐺")
-
+st.caption("© 2025 Wolverhampton Wanderers Dashboard | Powered by Football-Data.org & Streamlit 🐺")
