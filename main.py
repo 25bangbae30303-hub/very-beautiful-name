@@ -68,3 +68,4 @@ for entry in feed.entries[:5]:
 # -------------------------------
 st.write("---")
 st.caption("© 2025 Wolverhampton Wanderers Data Dashboard | Made with Streamlit 🐺")
+
